@@ -45,9 +45,9 @@ const makeCallFlow = ai.defineFlow(
       });
       console.log('Call initiated with SID:', call.sid);
       return { sid: call.sid };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to make call:', error);
-      throw new Error('Failed to initiate call via Twilio.');
+      throw new Error(`Failed to initiate call via Twilio: ${error.message}`);
     }
   }
 );

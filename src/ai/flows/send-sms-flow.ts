@@ -45,9 +45,9 @@ const sendSmsFlow = ai.defineFlow(
       });
       console.log('Message sent with SID:', message.sid);
       return { sid: message.sid };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to send SMS:', error);
-      throw new Error('Failed to send SMS via Twilio.');
+      throw new Error(`Failed to send SMS via Twilio: ${error.message}`);
     }
   }
 );
