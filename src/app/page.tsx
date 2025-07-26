@@ -26,8 +26,8 @@ import {
 export default function SafeGuardPage() {
   const [primaryContact, setPrimaryContact] = useState("+919380731506");
   const [inputContact, setInputContact] = useState("+919380731506");
-  const [twilioFromNumber, setTwilioFromNumber] = useState("+15005550006");
-  const [inputFromNumber, setInputFromNumber] = useState("+15005550006");
+  const [twilioFromNumber, setTwilioFromNumber] = useState(process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || "");
+  const [inputFromNumber, setInputFromNumber] = useState(process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || "");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
