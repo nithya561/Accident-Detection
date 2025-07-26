@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -9,6 +10,15 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 
 export default function SafeGuardPage() {
@@ -22,6 +32,7 @@ export default function SafeGuardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [showAlertDialog, setShowAlertDialog] = useState(false);
 
   const setupCameraStream = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -85,20 +96,7 @@ export default function SafeGuardPage() {
       setAccidentStatus(null);
       return;
     }
-    
-    toast({
-      title: "Emergency Alert Sent",
-      description: `An SMS with your location has been sent to ${primaryContact}.`,
-      action: <MessageSquare className="text-green-500" />,
-    });
-    
-    setTimeout(() => {
-        toast({
-          title: "Initiating Emergency Call",
-          description: `Calling ${primaryContact} now...`,
-          action: <Phone className="text-blue-500" />,
-        });
-    }, 2000);
+    setShowAlertDialog(true);
   }, [primaryContact, toast]);
 
   useEffect(() => {
@@ -117,12 +115,10 @@ export default function SafeGuardPage() {
         return;
     }
 
-    // Ensure video is playing for uploaded content
     if (videoSrc && videoRef.current.paused) {
-      await videoRef.current.play();
+      await videoRef.current.play().catch(e => console.error("Error playing video:", e));
     }
     
-    // A short delay to ensure the frame is ready
     await new Promise(resolve => setTimeout(resolve, 100));
 
 
@@ -165,8 +161,8 @@ export default function SafeGuardPage() {
   const resetSystem = () => {
     setAccidentStatus(null);
     setIsEmergency(false);
-    // If not using camera, reset to it
-    if (!hasCameraPermission) {
+    setShowAlertDialog(false);
+    if (!hasCameraPermission && !videoSrc) {
       setupCameraStream();
     }
     toast({
@@ -184,7 +180,7 @@ export default function SafeGuardPage() {
         videoRef.current.src = url;
         videoRef.current.controls = true;
         videoRef.current.muted = false;
-        setHasCameraPermission(null); // To hide camera status overlays
+        setHasCameraPermission(null); 
     }
   };
 
@@ -193,6 +189,8 @@ export default function SafeGuardPage() {
     if (accidentStatus?.isAccident) return { text: `Accident Detected! Confidence: ${(accidentStatus.confidence * 100).toFixed(0)}%`, color: "text-destructive" };
     if (isEmergency) return { text: "Manual Emergency Activated!", color: "text-destructive" };
     if (videoSrc) return { text: "Video loaded. Ready to analyze.", color: "text-blue-600" };
+    if(hasCameraPermission === false && !videoSrc) return { text: "Camera not available. Upload a video.", color: "text-amber-500" };
+    if(hasCameraPermission === true && !videoSrc) return { text: "Live feed active. Ready to analyze.", color: "text-green-600" };
     return { text: "All Systems Normal. Ready to analyze.", color: "text-green-600" };
   };
 
@@ -238,7 +236,6 @@ export default function SafeGuardPage() {
               <div className="aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center relative">
                   <video 
                     ref={videoRef} 
-                    src={videoSrc ?? undefined}
                     className="w-full h-full object-cover" 
                     autoPlay 
                     muted={!videoSrc} 
@@ -249,7 +246,7 @@ export default function SafeGuardPage() {
                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white p-4">
                             <AlertCircle className="h-8 w-8 mb-2" />
                             <p className="text-center font-semibold">Camera permission denied.</p>
-                            <p className="text-center text-sm">Please enable camera access in your browser settings.</p>
+                            <p className="text-center text-sm">Please enable camera access or upload a video.</p>
                        </div>
                   )}
                    {!videoSrc && hasCameraPermission === null && (
@@ -340,6 +337,38 @@ export default function SafeGuardPage() {
       <footer className="p-4 text-center text-sm text-muted-foreground border-t mt-8">
         <p>&copy; {new Date().getFullYear()} SafeGuard. All Rights Reserved.</p>
       </footer>
+      
+      <AlertDialog open={showAlertDialog} onOpenChange={setShowAlertDialog}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+            <AlertDialogTitle>Emergency Alert Triggered!</AlertDialogTitle>
+            <AlertDialogDescription>
+                The system is now alerting your primary contact. This is a simulation. In a real application, an SMS and a phone call would be initiated.
+            </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-4 my-4">
+                <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
+                    <MessageSquare className="h-6 w-6 text-primary" />
+                    <div>
+                        <p className="font-semibold">Simulating SMS</p>
+                        <p className="text-sm text-muted-foreground">Sending details to {primaryContact}...</p>
+                    </div>
+                </div>
+                 <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
+                    <Phone className="h-6 w-6 text-primary" />
+                    <div>
+                        <p className="font-semibold">Simulating Call</p>
+                        <p className="text-sm text-muted-foreground">Initiating call to {primaryContact}...</p>
+                    </div>
+                </div>
+            </div>
+            <AlertDialogFooter>
+                <AlertDialogAction onClick={resetSystem}>Acknowledge & Reset</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+    
