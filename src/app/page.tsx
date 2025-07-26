@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload, CircleCheck, ExternalLink } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,7 @@ export default function SafeGuardPage() {
   const [showEmergencyDialog, setShowEmergencyDialog] = useState(false);
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isAutoDetecting, setIsAutoDetecting] = useState(false);
 
 
   const resetSystem = useCallback(() => {
@@ -56,7 +58,7 @@ export default function SafeGuardPage() {
         description: "Monitoring for new incidents.",
     });
   }, [toast]);
-
+  
   const triggerAlerts = useCallback(async (reason?: string) => {
     if (!primaryContact) {
       toast({
@@ -80,6 +82,7 @@ export default function SafeGuardPage() {
 
     setIsAlerting(true);
     setShowEmergencyDialog(true);
+    setIsAutoDetecting(false); // Turn off auto-detection after an alert
 
     const alertReason = reason || "Manual emergency activation.";
     const messageBody = `URGENT: An accident may have been detected involving your contact. Reason: ${alertReason}. Please check on them immediately.`;
@@ -113,84 +116,8 @@ export default function SafeGuardPage() {
   }, [primaryContact, twilioFromNumber, toast, isAlerting, resetSystem]);
 
 
-  const setupCameraStream = useCallback(async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      console.error("Camera API not available in this browser.");
-      setHasCameraPermission(false);
-      toast({
-          variant: "destructive",
-          title: "Unsupported Browser",
-          description: "Your browser does not support camera access, which is required for this app.",
-      });
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setHasCameraPermission(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.src = ""; // Clear src if we are using srcObject
-        setVideoSrc(null);
-      }
-    } catch (error) {
-      console.error("Error accessing camera:", error);
-      setHasCameraPermission(false);
-      toast({
-        variant: "destructive",
-        title: "Camera Access Denied",
-        description: "Please enable camera permissions in your browser settings to use this app.",
-      });
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    setupCameraStream();
-     return () => {
-      if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
-      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
-    };
-  }, [setupCameraStream]);
-
-
-  const handleSetContact = () => {
-    if (inputContact && /^\+?[1-9]\d{1,14}$/.test(inputContact)) {
-        setPrimaryContact(inputContact);
-        toast({
-            title: "Contact Updated",
-            description: `Primary contact set to ${inputContact}.`,
-        });
-    } else {
-        toast({
-            variant: "destructive",
-            title: "Invalid Phone Number",
-            description: "Please enter a valid phone number in E.164 format (e.g., +15551234567).",
-        });
-    }
-  };
-  
-  const handleSetFromNumber = () => {
-    if (inputFromNumber && /^\+?[1-9]\d{1,14}$/.test(inputFromNumber)) {
-        setTwilioFromNumber(inputFromNumber);
-        toast({
-            title: "Twilio Number Updated",
-            description: `Twilio 'From' number set to ${inputFromNumber}.`,
-        });
-    } else {
-        toast({
-            variant: "destructive",
-            title: "Invalid Phone Number",
-            description: "Please enter a valid Twilio phone number in E.164 format.",
-        });
-    }
-  };
-
-  const handleDetectAccident = async () => {
-    if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
-        toast({
-            variant: "destructive",
-            title: "Video Not Ready",
-            description: "Cannot analyze footage without camera access or an uploaded video.",
-        });
+  const runDetection = useCallback(async () => {
+    if (!videoRef.current || (!hasCameraPermission && !videoSrc) || isDetecting || isAlerting) {
         return;
     }
 
@@ -238,6 +165,93 @@ export default function SafeGuardPage() {
     } finally {
       setIsDetecting(false);
     }
+  }, [videoRef, hasCameraPermission, videoSrc, isDetecting, isAlerting, toast, triggerAlerts]);
+
+  const setupCameraStream = useCallback(async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error("Camera API not available in this browser.");
+      setHasCameraPermission(false);
+      toast({
+          variant: "destructive",
+          title: "Unsupported Browser",
+          description: "Your browser does not support camera access, which is required for this app.",
+      });
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setHasCameraPermission(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.src = ""; // Clear src if we are using srcObject
+        setVideoSrc(null);
+      }
+    } catch (error) {
+      console.error("Error accessing camera:", error);
+      setHasCameraPermission(false);
+      toast({
+        variant: "destructive",
+        title: "Camera Access Denied",
+        description: "Please enable camera permissions in your browser settings to use this app.",
+      });
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    setupCameraStream();
+     return () => {
+      if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
+  }, [setupCameraStream]);
+
+  const canDetect = (hasCameraPermission || !!videoSrc) && !isAlerting;
+
+  useEffect(() => {
+    let detectionInterval: NodeJS.Timeout | null = null;
+    if (isAutoDetecting && canDetect && hasCameraPermission) {
+      detectionInterval = setInterval(() => {
+        runDetection();
+      }, 5000); // Run detection every 5 seconds
+    }
+    return () => {
+      if (detectionInterval) {
+        clearInterval(detectionInterval);
+      }
+    };
+  }, [isAutoDetecting, canDetect, runDetection, hasCameraPermission]);
+
+
+  const handleSetContact = () => {
+    if (inputContact && /^\+?[1-9]\d{1,14}$/.test(inputContact)) {
+        setPrimaryContact(inputContact);
+        toast({
+            title: "Contact Updated",
+            description: `Primary contact set to ${inputContact}.`,
+        });
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Invalid Phone Number",
+            description: "Please enter a valid phone number in E.164 format (e.g., +15551234567).",
+        });
+    }
+  };
+  
+  const handleSetFromNumber = () => {
+    if (inputFromNumber && /^\+?[1-9]\d{1,14}$/.test(inputFromNumber)) {
+        setTwilioFromNumber(inputFromNumber);
+        toast({
+            title: "Twilio Number Updated",
+            description: `Twilio 'From' number set to ${inputFromNumber}.`,
+        });
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Invalid Phone Number",
+            description: "Please enter a valid Twilio phone number in E.164 format.",
+        });
+    }
   };
   
   const handleManualEmergency = () => {
@@ -251,6 +265,7 @@ export default function SafeGuardPage() {
     if (file && videoRef.current) {
         const url = URL.createObjectURL(file);
         setVideoSrc(url);
+        setIsAutoDetecting(false); // Disable auto-detect for uploaded files
         videoRef.current.srcObject = null;
         videoRef.current.src = url;
         videoRef.current.controls = true;
@@ -263,7 +278,8 @@ export default function SafeGuardPage() {
     if (isDetecting) return { text: "Detecting accident...", color: "text-amber-500", icon: <Loader2 className="h-5 w-5 mr-2 animate-spin" /> };
     if (isAlerting) return { text: "Alerts sent! System will reset automatically.", color: "text-blue-600", icon: <CircleCheck className="h-5 w-5 mr-2" /> };
     if (accidentStatus && !accidentStatus.isAccident) return { text: `Analysis complete. No accident found.`, color: "text-green-600", icon: <ShieldCheck className="h-5 w-5 mr-2" /> };
-    if (videoSrc) return { text: "Video loaded. Ready for detection.", color: "text-blue-600" };
+    if (isAutoDetecting) return { text: "Auto-detection active. Monitoring live feed...", color: "text-blue-600", icon: <Loader2 className="h-5 w-5 mr-2 animate-spin" /> };
+    if (videoSrc) return { text: "Video loaded. Ready for manual detection.", color: "text-blue-600" };
     if(hasCameraPermission === false && !videoSrc) return { text: "Camera not available. Upload a video.", color: "text-amber-500" };
     if(hasCameraPermission === true && !videoSrc) return { text: "Live feed active. Ready for detection.", color: "text-green-600" };
     return { text: "All Systems Normal. Ready for detection.", color: "text-green-600" };
@@ -271,8 +287,6 @@ export default function SafeGuardPage() {
 
   const status = getStatus();
   const isAlertActive = isEmergency || isAlerting;
-  const canDetect = (hasCameraPermission || !!videoSrc) && !isDetecting && !isAlertActive;
-
 
   return (
     <>
@@ -327,7 +341,7 @@ export default function SafeGuardPage() {
                           accept="video/*"
                       />
                   </CardTitle>
-                  <CardDescription>{videoSrc ? "Analyzing uploaded video." : "Live feed for accident detection."}</CardDescription>
+                  <CardDescription>{videoSrc ? "Video uploaded. Press 'Detect Accident' below." : "Live feed for accident detection."}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center relative">
@@ -354,11 +368,22 @@ export default function SafeGuardPage() {
                     )}
                 </div>
               </CardContent>
-               <CardFooter className="flex flex-col sm:flex-row gap-2 pt-2">
-                  <Button onClick={handleDetectAccident} disabled={!canDetect}>
-                    {isDetecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Detect Accident
-                  </Button>
+               <CardFooter className="flex flex-col sm:flex-row items-center gap-4 pt-4">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="auto-detection-switch"
+                      checked={isAutoDetecting}
+                      onCheckedChange={setIsAutoDetecting}
+                      disabled={!hasCameraPermission || isAlertActive || !!videoSrc}
+                    />
+                    <Label htmlFor="auto-detection-switch">Enable Auto-Detection</Label>
+                  </div>
+                  {videoSrc && (
+                    <Button onClick={runDetection} disabled={isDetecting || isAlerting}>
+                        {isDetecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Detect Accident from Video
+                    </Button>
+                  )}
                   {isAlertActive && (
                       <Button onClick={resetSystem} variant="outline">Reset System Now</Button>
                   )}
