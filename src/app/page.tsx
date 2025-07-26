@@ -24,8 +24,8 @@ import {
 
 
 export default function SafeGuardPage() {
-  const [primaryContact, setPrimaryContact] = useState("+919380731506");
-  const [inputContact, setInputContact] = useState("+919380731506");
+  const [primaryContact, setPrimaryContact] = useState("+15555555555");
+  const [inputContact, setInputContact] = useState("+15555555555");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
@@ -412,3 +412,5 @@ export default function SafeGuardPage() {
     </>
   );
 }
+
+    
