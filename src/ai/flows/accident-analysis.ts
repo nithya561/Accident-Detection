@@ -49,6 +49,7 @@ const prompt = ai.definePrompt({
   `,
 });
 
+
 const analyzeAccidentFlow = ai.defineFlow(
   {
     name: 'analyzeAccidentFlow',
@@ -57,6 +58,9 @@ const analyzeAccidentFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    if (!output) {
+      throw new Error('AI model did not return a valid response.');
+    }
+    return output;
   }
 );

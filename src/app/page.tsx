@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
@@ -19,40 +19,43 @@ export default function SafeGuardPage() {
   const [isEmergency, setIsEmergency] = useState(false);
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+
+  const setupCameraStream = useCallback(async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error("Camera API not available in this browser.");
+      setHasCameraPermission(false);
+      toast({
+          variant: "destructive",
+          title: "Unsupported Browser",
+          description: "Your browser does not support camera access, which is required for this app.",
+      });
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setHasCameraPermission(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.src = ""; // Clear src if we are using srcObject
+        setVideoSrc(null);
+      }
+    } catch (error) {
+      console.error("Error accessing camera:", error);
+      setHasCameraPermission(false);
+      toast({
+        variant: "destructive",
+        title: "Camera Access Denied",
+        description: "Please enable camera permissions in your browser settings to use this app.",
+      });
+    }
+  }, [toast]);
 
   useEffect(() => {
-    const getCameraPermission = async () => {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.error("Camera API not available in this browser.");
-        setHasCameraPermission(false);
-        toast({
-            variant: "destructive",
-            title: "Unsupported Browser",
-            description: "Your browser does not support camera access, which is required for this app.",
-        });
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        setHasCameraPermission(true);
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (error) {
-        console.error("Error accessing camera:", error);
-        setHasCameraPermission(false);
-        toast({
-          variant: "destructive",
-          title: "Camera Access Denied",
-          description: "Please enable camera permissions in your browser settings to use this app.",
-        });
-      }
-    };
-
-    getCameraPermission();
-  }, [toast]);
+    setupCameraStream();
+  }, [setupCameraStream]);
 
 
   const handleSetContact = () => {
@@ -105,14 +108,23 @@ export default function SafeGuardPage() {
   }, [accidentStatus, isEmergency, triggerAlerts]);
 
   const handleAnalyzeFootage = async () => {
-    if (!videoRef.current || !hasCameraPermission) {
+    if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
         toast({
             variant: "destructive",
-            title: "Camera Not Ready",
-            description: "Cannot analyze footage without camera access.",
+            title: "Video Not Ready",
+            description: "Cannot analyze footage without camera access or an uploaded video.",
         });
         return;
     }
+
+    // Ensure video is playing for uploaded content
+    if (videoSrc && videoRef.current.paused) {
+      await videoRef.current.play();
+    }
+    
+    // A short delay to ensure the frame is ready
+    await new Promise(resolve => setTimeout(resolve, 100));
+
 
     setIsAnalyzing(true);
     setAccidentStatus(null);
@@ -138,7 +150,7 @@ export default function SafeGuardPage() {
       toast({
         variant: "destructive",
         title: "Analysis Failed",
-        description: "Could not analyze the video footage.",
+        description: "Could not analyze the video footage. The AI model may have returned an unexpected format.",
       });
     } finally {
       setIsAnalyzing(false);
@@ -153,21 +165,41 @@ export default function SafeGuardPage() {
   const resetSystem = () => {
     setAccidentStatus(null);
     setIsEmergency(false);
+    // If not using camera, reset to it
+    if (!hasCameraPermission) {
+      setupCameraStream();
+    }
     toast({
         title: "System Reset",
         description: "Monitoring for new incidents.",
     });
   };
 
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && videoRef.current) {
+        const url = URL.createObjectURL(file);
+        setVideoSrc(url);
+        videoRef.current.srcObject = null;
+        videoRef.current.src = url;
+        videoRef.current.controls = true;
+        videoRef.current.muted = false;
+        setHasCameraPermission(null); // To hide camera status overlays
+    }
+  };
+
   const getStatus = () => {
     if (isAnalyzing) return { text: "Analyzing video feed...", color: "text-amber-500" };
     if (accidentStatus?.isAccident) return { text: `Accident Detected! Confidence: ${(accidentStatus.confidence * 100).toFixed(0)}%`, color: "text-destructive" };
     if (isEmergency) return { text: "Manual Emergency Activated!", color: "text-destructive" };
+    if (videoSrc) return { text: "Video loaded. Ready to analyze.", color: "text-blue-600" };
     return { text: "All Systems Normal. Ready to analyze.", color: "text-green-600" };
   };
 
   const status = getStatus();
   const isAlertActive = isEmergency || (accidentStatus?.isAccident ?? false);
+  const canAnalyze = (hasCameraPermission || !!videoSrc) && !isAnalyzing && !isAlertActive;
+
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
@@ -183,23 +215,44 @@ export default function SafeGuardPage() {
           
           <Card className="w-full shadow-md">
             <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                    <Video className="h-6 w-6" />
-                    Live Monitoring
+                <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xl">
+                      <Video className="h-6 w-6" />
+                      Video Feed
+                    </div>
+                     <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Upload Video
+                    </Button>
+                    <input 
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        className="hidden"
+                        accept="video/*"
+                    />
                 </CardTitle>
-                <CardDescription>Live feed from your camera for accident detection.</CardDescription>
+                <CardDescription>{videoSrc ? "Analyzing uploaded video." : "Live feed for accident detection."}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center relative">
-                  <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                  {hasCameraPermission === false && (
+                  <video 
+                    ref={videoRef} 
+                    src={videoSrc ?? undefined}
+                    className="w-full h-full object-cover" 
+                    autoPlay 
+                    muted={!videoSrc} 
+                    playsInline 
+                    loop={!!videoSrc}
+                  />
+                  {!videoSrc && hasCameraPermission === false && (
                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white p-4">
                             <AlertCircle className="h-8 w-8 mb-2" />
                             <p className="text-center font-semibold">Camera permission denied.</p>
                             <p className="text-center text-sm">Please enable camera access in your browser settings.</p>
                        </div>
                   )}
-                   {hasCameraPermission === null && (
+                   {!videoSrc && hasCameraPermission === null && (
                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white">
                             <Loader2 className="h-8 w-8 animate-spin" />
                             <p>Requesting camera...</p>
@@ -208,7 +261,7 @@ export default function SafeGuardPage() {
               </div>
             </CardContent>
              <CardFooter className="flex flex-col sm:flex-row gap-2 pt-2">
-                <Button onClick={handleAnalyzeFootage} disabled={isAnalyzing || isAlertActive || !hasCameraPermission}>
+                <Button onClick={handleAnalyzeFootage} disabled={!canAnalyze}>
                   {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Analyze Footage
                 </Button>
