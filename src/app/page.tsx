@@ -12,8 +12,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 export default function SafeGuardPage() {
-  const [primaryContact, setPrimaryContact] = useState("");
-  const [inputContact, setInputContact] = useState("");
+  const [primaryContact, setPrimaryContact] = useState("9380731506");
+  const [inputContact, setInputContact] = useState("9380731506");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
