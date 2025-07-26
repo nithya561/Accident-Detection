@@ -38,7 +38,9 @@ export default function SafeGuardPage() {
     console.log("Resetting system...");
     setAccidentStatus(null);
     setIsEmergency(false);
-    setShowAlertDialog(false);
+    if (showAlertDialog) {
+      setShowAlertDialog(false);
+    }
     if (alertTimeoutRef.current) {
       clearTimeout(alertTimeoutRef.current);
       alertTimeoutRef.current = null;
@@ -47,7 +49,7 @@ export default function SafeGuardPage() {
         title: "System Reset",
         description: "Monitoring for new incidents.",
     });
-  }, [toast]);
+  }, [toast, showAlertDialog]);
 
   const triggerAlerts = useCallback(() => {
     if (!primaryContact) {
@@ -60,12 +62,14 @@ export default function SafeGuardPage() {
       setAccidentStatus(null);
       return;
     }
+    
     console.log("Triggering alerts...");
     setShowAlertDialog(true);
 
     if (alertTimeoutRef.current) {
       clearTimeout(alertTimeoutRef.current);
     }
+
     alertTimeoutRef.current = setTimeout(() => {
         console.log("Auto-resetting after 5 seconds...");
         resetSystem();
@@ -351,7 +355,7 @@ export default function SafeGuardPage() {
         <p>&copy; {new Date().getFullYear()} SafeGuard. All Rights Reserved.</p>
       </footer>
       
-      <AlertDialog open={showAlertDialog} onOpenChange={(open) => !open && resetSystem()}>
+       <AlertDialog open={showAlertDialog} onOpenChange={(open) => { if (!open) resetSystem(); }}>
         <AlertDialogContent>
             <AlertDialogHeader>
             <AlertDialogTitle>Emergency Alert Triggered!</AlertDialogTitle>
@@ -376,10 +380,11 @@ export default function SafeGuardPage() {
                 </div>
             </div>
             <AlertDialogFooter>
-                <Button onClick={resetSystem}>Acknowledge & Reset</Button>
+                <Button onClick={resetSystem}>Acknowledge &amp; Reset</Button>
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   );
-}
+
+    
