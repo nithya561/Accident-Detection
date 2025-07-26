@@ -3,12 +3,14 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { analyzeAccident, type AccidentAnalysisOutput } from "@/ai/flows/accident-analysis";
+import { sendSms } from "@/ai/flows/send-sms-flow";
+import { makeCall } from "@/ai/flows/make-call-flow";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload, CircleCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -26,32 +28,25 @@ export default function SafeGuardPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
+  const [isAlerting, setIsAlerting] = useState(false);
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
-  const [showAlertDialog, setShowAlertDialog] = useState(false);
-  const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const resetSystem = useCallback(() => {
     console.log("Resetting system...");
     setAccidentStatus(null);
     setIsEmergency(false);
-    if (showAlertDialog) {
-      setShowAlertDialog(false);
-    }
-    if (alertTimeoutRef.current) {
-      clearTimeout(alertTimeoutRef.current);
-      alertTimeoutRef.current = null;
-    }
+    setIsAlerting(false);
     toast({
         title: "System Reset",
         description: "Monitoring for new incidents.",
     });
-  }, [toast, showAlertDialog]);
+  }, [toast]);
 
-  const triggerAlerts = useCallback(() => {
+  const triggerAlerts = useCallback(async () => {
     if (!primaryContact) {
       toast({
         variant: "destructive",
@@ -62,19 +57,49 @@ export default function SafeGuardPage() {
       setAccidentStatus(null);
       return;
     }
-    
-    console.log("Triggering alerts...");
-    setShowAlertDialog(true);
 
-    if (alertTimeoutRef.current) {
-      clearTimeout(alertTimeoutRef.current);
+    if (isAlerting) return; // Prevent multiple alerts
+
+    setIsAlerting(true);
+    toast({
+      title: "Emergency Triggered!",
+      description: `Contacting ${primaryContact}...`
+    });
+    
+    const twilioPhoneNumber = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER;
+
+    if (!twilioPhoneNumber) {
+        toast({
+            variant: "destructive",
+            title: "Twilio Not Configured",
+            description: "The Twilio phone number is not set up in the environment.",
+        });
+        setIsAlerting(false);
+        return;
     }
 
-    alertTimeoutRef.current = setTimeout(() => {
-        console.log("Auto-resetting after 5 seconds...");
-        resetSystem();
-    }, 5000); // Auto-reset after 5 seconds
-  }, [primaryContact, toast, resetSystem]);
+    const alertReason = accidentStatus?.reason || "Manual emergency activation.";
+    const messageBody = `URGENT: An accident may have been detected involving your contact. Reason: ${alertReason}. Please check on them immediately.`;
+    const callMessage = `Hello. This is an automated alert from SafeGuard. An accident may have been detected. Reason: ${alertReason}. Please check on your contact immediately.`;
+
+    try {
+        await sendSms({ to: primaryContact, from: twilioPhoneNumber, body: messageBody });
+        toast({ title: "SMS Sent Successfully", description: `Message sent to ${primaryContact}` });
+    } catch (error) {
+        console.error("SMS sending failed:", error);
+        toast({ variant: "destructive", title: "SMS Failed", description: "Could not send SMS alert." });
+    }
+    
+    try {
+        await makeCall({ to: primaryContact, from: twilioPhoneNumber, message: callMessage });
+        toast({ title: "Call Initiated Successfully", description: `Calling ${primaryContact}` });
+    } catch (error) {
+        console.error("Call initiation failed:", error);
+        toast({ variant: "destructive", title: "Call Failed", description: "Could not initiate call alert." });
+    }
+    
+    // Do not auto-reset, wait for manual reset
+  }, [primaryContact, toast, accidentStatus, isAlerting]);
 
 
   const setupCameraStream = useCallback(async () => {
@@ -129,11 +154,11 @@ export default function SafeGuardPage() {
   };
   
   useEffect(() => {
-    if (accidentStatus?.isAccident && !isEmergency && !showAlertDialog) {
+    if (accidentStatus?.isAccident && !isEmergency) {
       setIsEmergency(true); 
       triggerAlerts();
     }
-  }, [accidentStatus, isEmergency, showAlertDialog, triggerAlerts]);
+  }, [accidentStatus, isEmergency, triggerAlerts]);
 
   const handleAnalyzeFootage = async () => {
     if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
@@ -184,7 +209,8 @@ export default function SafeGuardPage() {
   };
   
   const handleManualEmergency = () => {
-    setAccidentStatus({isAccident: true, confidence: 1.0, reason: "Manual activation."}); // Set a mock status
+    if (isAlerting) return;
+    setAccidentStatus({isAccident: true, confidence: 1.0, reason: "Manual activation."});
     setIsEmergency(true);
     triggerAlerts();
   };
@@ -204,7 +230,8 @@ export default function SafeGuardPage() {
 
   const getStatus = () => {
     if (isAnalyzing) return { text: "Analyzing video feed...", color: "text-amber-500" };
-    if (accidentStatus?.isAccident || isEmergency) return { text: `Accident Detected! Confidence: ${(accidentStatus?.confidence ?? 1 * 100).toFixed(0)}%`, color: "text-destructive" };
+    if (isAlerting) return { text: "Alerts sent! Waiting for manual reset.", color: "text-blue-600", icon: <CircleCheck className="h-5 w-5 mr-2" /> };
+    if (accidentStatus?.isAccident || isEmergency) return { text: `Accident Detected! Confidence: ${(accidentStatus?.confidence ?? 1 * 100).toFixed(0)}%. Triggering alerts...`, color: "text-destructive" };
     if (videoSrc) return { text: "Video loaded. Ready to analyze.", color: "text-blue-600" };
     if(hasCameraPermission === false && !videoSrc) return { text: "Camera not available. Upload a video.", color: "text-amber-500" };
     if(hasCameraPermission === true && !videoSrc) return { text: "Live feed active. Ready to analyze.", color: "text-green-600" };
@@ -212,7 +239,7 @@ export default function SafeGuardPage() {
   };
 
   const status = getStatus();
-  const isAlertActive = isEmergency || (accidentStatus?.isAccident ?? false);
+  const isAlertActive = isEmergency || isAlerting || (accidentStatus?.isAccident ?? false);
   const canAnalyze = (hasCameraPermission || !!videoSrc) && !isAnalyzing && !isAlertActive;
 
 
@@ -324,7 +351,8 @@ export default function SafeGuardPage() {
                 <CardDescription>Real-time status of the accident detection system.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                <div className={`text-lg font-semibold ${status.color}`}>
+                <div className={`flex items-center text-lg font-semibold ${status.color}`}>
+                    {status.icon}
                     {status.text}
                 </div>
                 {accidentStatus?.reason && (
@@ -354,37 +382,6 @@ export default function SafeGuardPage() {
       <footer className="p-4 text-center text-sm text-muted-foreground border-t mt-8">
         <p>&copy; {new Date().getFullYear()} SafeGuard. All Rights Reserved.</p>
       </footer>
-      
-       <AlertDialog open={showAlertDialog} onOpenChange={(open) => { if (!open) resetSystem(); }}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-            <AlertDialogTitle>Emergency Alert Triggered!</AlertDialogTitle>
-            <AlertDialogDescription>
-                The system is now alerting your primary contact. This is a simulation. In a real application, an SMS and a phone call would be initiated. This dialog will close automatically.
-            </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-4 my-4">
-                <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
-                    <MessageSquare className="h-6 w-6 text-primary" />
-                    <div>
-                        <p className="font-semibold">Simulating SMS</p>
-                        <p className="text-sm text-muted-foreground">Sending details to {primaryContact}...</p>
-                    </div>
-                </div>
-                 <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
-                    <Phone className="h-6 w-6 text-primary" />
-                    <div>
-                        <p className="font-semibold">Simulating Call</p>
-                        <p className="text-sm text-muted-foreground">Initiating call to {primaryContact}...</p>
-                    </div>
-                </div>
-            </div>
-            <AlertDialogFooter>
-                <Button onClick={resetSystem}>Acknowledge &amp; Reset</Button>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
-
-    
+}
