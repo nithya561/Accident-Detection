@@ -35,6 +35,7 @@ export default function SafeGuardPage() {
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const resetSystem = useCallback(() => {
+    console.log("Resetting system...");
     setAccidentStatus(null);
     setIsEmergency(false);
     setShowAlertDialog(false);
@@ -59,12 +60,14 @@ export default function SafeGuardPage() {
       setAccidentStatus(null);
       return;
     }
+    console.log("Triggering alerts...");
     setShowAlertDialog(true);
 
     if (alertTimeoutRef.current) {
       clearTimeout(alertTimeoutRef.current);
     }
     alertTimeoutRef.current = setTimeout(() => {
+        console.log("Auto-resetting after 5 seconds...");
         resetSystem();
     }, 5000); // Auto-reset after 5 seconds
   }, [primaryContact, toast, resetSystem]);
@@ -177,7 +180,7 @@ export default function SafeGuardPage() {
   };
   
   const handleManualEmergency = () => {
-    setAccidentStatus(null);
+    setAccidentStatus({isAccident: true, confidence: 1.0, reason: "Manual activation."}); // Set a mock status
     setIsEmergency(true);
     triggerAlerts();
   };
@@ -348,7 +351,7 @@ export default function SafeGuardPage() {
         <p>&copy; {new Date().getFullYear()} SafeGuard. All Rights Reserved.</p>
       </footer>
       
-      <AlertDialog open={showAlertDialog} onOpenChange={setShowAlertDialog}>
+      <AlertDialog open={showAlertDialog} onOpenChange={(open) => !open && resetSystem()}>
         <AlertDialogContent>
             <AlertDialogHeader>
             <AlertDialogTitle>Emergency Alert Triggered!</AlertDialogTitle>
@@ -379,5 +382,4 @@ export default function SafeGuardPage() {
       </AlertDialog>
     </div>
   );
-
-    
+}
