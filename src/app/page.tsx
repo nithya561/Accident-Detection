@@ -28,7 +28,7 @@ export default function SafeGuardPage() {
   const [inputContact, setInputContact] = useState("+919380731506");
   const [twilioFromNumber, setTwilioFromNumber] = useState("+13253125474");
   const [inputFromNumber, setInputFromNumber] = useState("+13253125474");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
   const [isAlerting, setIsAlerting] = useState(false);
@@ -38,6 +38,9 @@ export default function SafeGuardPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [showEmergencyDialog, setShowEmergencyDialog] = useState(false);
+  const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
 
   const resetSystem = useCallback(() => {
     console.log("Resetting system...");
@@ -45,13 +48,16 @@ export default function SafeGuardPage() {
     setIsEmergency(false);
     setIsAlerting(false);
     setShowEmergencyDialog(false);
+    if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+    if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+
     toast({
         title: "System Reset",
         description: "Monitoring for new incidents.",
     });
   }, [toast]);
 
-  const triggerAlerts = useCallback(async () => {
+  const triggerAlerts = useCallback(async (reason?: string) => {
     if (!primaryContact) {
       toast({
         variant: "destructive",
@@ -70,14 +76,16 @@ export default function SafeGuardPage() {
       return;
     }
 
-    if (isAlerting) return; // Prevent multiple alerts
+    if (isAlerting) return; 
 
     setIsAlerting(true);
     setShowEmergencyDialog(true);
 
-    const alertReason = accidentStatus?.reason || "Manual emergency activation.";
+    const alertReason = reason || "Manual emergency activation.";
     const messageBody = `URGENT: An accident may have been detected involving your contact. Reason: ${alertReason}. Please check on them immediately.`;
     const callMessage = `Hello. This is an automated alert from SafeGuard. An accident may have been detected. Reason: ${alertReason}. Please check on your contact immediately.`;
+    
+    setAccidentStatus({ isAccident: true, confidence: 1, reason: alertReason });
 
     try {
         await sendSms({ to: primaryContact, from: twilioFromNumber, body: messageBody });
@@ -94,8 +102,15 @@ export default function SafeGuardPage() {
         console.error("Call initiation failed:", error);
         toast({ variant: "destructive", title: "Call Failed", description: `Could not initiate call alert: ${error.message}` });
     }
+
+    toast({
+        title: "Automatic Reset Initiated",
+        description: "The system will reset in 30 seconds.",
+    });
+
+    resetTimeoutRef.current = setTimeout(resetSystem, 30000);
     
-  }, [primaryContact, twilioFromNumber, toast, accidentStatus, isAlerting]);
+  }, [primaryContact, twilioFromNumber, toast, isAlerting, resetSystem]);
 
 
   const setupCameraStream = useCallback(async () => {
@@ -130,6 +145,10 @@ export default function SafeGuardPage() {
 
   useEffect(() => {
     setupCameraStream();
+     return () => {
+      if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
   }, [setupCameraStream]);
 
 
@@ -165,19 +184,7 @@ export default function SafeGuardPage() {
     }
   };
 
-  useEffect(() => {
-    if (accidentStatus?.isAccident && !isEmergency) {
-      setIsEmergency(true); 
-    }
-  }, [accidentStatus, isEmergency]);
-
-  useEffect(() => {
-    if (isEmergency && !isAlerting) {
-        triggerAlerts();
-    }
-  }, [isEmergency, isAlerting, triggerAlerts]);
-
-  const handleAnalyzeFootage = async () => {
+  const handleDetectAccident = async () => {
     if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
         toast({
             variant: "destructive",
@@ -194,7 +201,7 @@ export default function SafeGuardPage() {
     await new Promise(resolve => setTimeout(resolve, 100));
 
 
-    setIsAnalyzing(true);
+    setIsDetecting(true);
     setAccidentStatus(null);
     setIsEmergency(false);
 
@@ -204,7 +211,7 @@ export default function SafeGuardPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
         toast({ variant: "destructive", title: "Could not process video frame." });
-        setIsAnalyzing(false);
+        setIsDetecting(false);
         return;
     }
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
@@ -212,23 +219,31 @@ export default function SafeGuardPage() {
 
     try {
       const result = await analyzeAccident({ photoDataUri: frameDataUri });
-      setAccidentStatus(result);
+      if (result.isAccident) {
+        await triggerAlerts(result.reason);
+      } else {
+        setAccidentStatus(result);
+        toast({
+            title: "No Accident Detected",
+            description: result.reason,
+        });
+      }
     } catch (error) {
       console.error("AI analysis failed:", error);
       toast({
         variant: "destructive",
-        title: "Analysis Failed",
+        title: "Detection Failed",
         description: "Could not analyze the video footage. The AI model may have returned an unexpected format.",
       });
     } finally {
-      setIsAnalyzing(false);
+      setIsDetecting(false);
     }
   };
   
   const handleManualEmergency = () => {
     if (isAlerting) return;
-    setAccidentStatus({isAccident: true, confidence: 1.0, reason: "Manual activation."});
     setIsEmergency(true);
+    triggerAlerts("Manual activation by user.");
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,18 +260,18 @@ export default function SafeGuardPage() {
   };
 
   const getStatus = () => {
-    if (isAnalyzing) return { text: "Analyzing video feed...", color: "text-amber-500" };
-    if (isAlerting) return { text: "Alerts sent! Waiting for manual reset.", color: "text-blue-600", icon: <CircleCheck className="h-5 w-5 mr-2" /> };
-    if (accidentStatus?.isAccident || isEmergency) return { text: `Accident Detected! Confidence: ${(accidentStatus?.confidence ?? 1 * 100).toFixed(0)}%. Triggering alerts...`, color: "text-destructive" };
-    if (videoSrc) return { text: "Video loaded. Ready to analyze.", color: "text-blue-600" };
+    if (isDetecting) return { text: "Detecting accident...", color: "text-amber-500", icon: <Loader2 className="h-5 w-5 mr-2 animate-spin" /> };
+    if (isAlerting) return { text: "Alerts sent! System will reset automatically.", color: "text-blue-600", icon: <CircleCheck className="h-5 w-5 mr-2" /> };
+    if (accidentStatus && !accidentStatus.isAccident) return { text: `Analysis complete. No accident found.`, color: "text-green-600", icon: <ShieldCheck className="h-5 w-5 mr-2" /> };
+    if (videoSrc) return { text: "Video loaded. Ready for detection.", color: "text-blue-600" };
     if(hasCameraPermission === false && !videoSrc) return { text: "Camera not available. Upload a video.", color: "text-amber-500" };
-    if(hasCameraPermission === true && !videoSrc) return { text: "Live feed active. Ready to analyze.", color: "text-green-600" };
-    return { text: "All Systems Normal. Ready to analyze.", color: "text-green-600" };
+    if(hasCameraPermission === true && !videoSrc) return { text: "Live feed active. Ready for detection.", color: "text-green-600" };
+    return { text: "All Systems Normal. Ready for detection.", color: "text-green-600" };
   };
 
   const status = getStatus();
-  const isAlertActive = isEmergency || isAlerting || (accidentStatus?.isAccident ?? false);
-  const canAnalyze = (hasCameraPermission || !!videoSrc) && !isAnalyzing && !isAlertActive;
+  const isAlertActive = isEmergency || isAlerting;
+  const canDetect = (hasCameraPermission || !!videoSrc) && !isDetecting && !isAlertActive;
 
 
   return (
@@ -269,15 +284,15 @@ export default function SafeGuardPage() {
               Emergency Alert Triggered!
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Sending SMS and initiating a call to {primaryContact}. Please wait for the system to reset.
+              Sending SMS and initiating a call to {primaryContact}. The system will reset automatically in 30 seconds.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-center gap-4 py-4">
               <Loader2 className="h-6 w-6 animate-spin" />
-              <p>Contacting emergency services...</p>
+              <p>Contacting emergency services and resetting...</p>
           </div>
           <AlertDialogFooter>
-            <Button onClick={resetSystem}>Reset System Manually</Button>
+            <Button onClick={resetSystem}>Reset System Now</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -340,12 +355,12 @@ export default function SafeGuardPage() {
                 </div>
               </CardContent>
                <CardFooter className="flex flex-col sm:flex-row gap-2 pt-2">
-                  <Button onClick={handleAnalyzeFootage} disabled={!canAnalyze}>
-                    {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Analyze Footage
+                  <Button onClick={handleDetectAccident} disabled={!canDetect}>
+                    {isDetecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Detect Accident
                   </Button>
                   {isAlertActive && (
-                      <Button onClick={resetSystem} variant="outline">Reset System</Button>
+                      <Button onClick={resetSystem} variant="outline">Reset System Now</Button>
                   )}
                 </CardFooter>
             </Card>
@@ -425,7 +440,7 @@ export default function SafeGuardPage() {
               <Button 
                   onClick={handleManualEmergency} 
                   className="bg-accent hover:bg-accent/90 text-accent-foreground h-20 w-full max-w-sm text-xl rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-200"
-                  disabled={isAnalyzing || isAlertActive}
+                  disabled={isDetecting || isAlertActive}
                   aria-label="Activate manual emergency"
               >
                   <AlertTriangle className="mr-4 h-8 w-8" />
