@@ -26,8 +26,8 @@ import {
 export default function SafeGuardPage() {
   const [primaryContact, setPrimaryContact] = useState("+919380731506");
   const [inputContact, setInputContact] = useState("+919380731506");
-  const [twilioFromNumber, setTwilioFromNumber] = useState("");
-  const [inputFromNumber, setInputFromNumber] = useState("");
+  const [twilioFromNumber, setTwilioFromNumber] = useState("+15005550006");
+  const [inputFromNumber, setInputFromNumber] = useState("+15005550006");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
@@ -365,9 +365,9 @@ export default function SafeGuardPage() {
                       <AlertTriangle className="h-4 w-4" />
                       <AlertTitle>Action Required: Get a Twilio Phone Number</AlertTitle>
                       <AlertDescription>
-                        You don't have a Twilio phone number. You must buy one from your Twilio console to send alerts.
+                        You don't have a Twilio phone number. You must get one from your Twilio console to send alerts. Use your free trial credits to get one.
                         <a href="https://www.twilio.com/console/phone-numbers/search" target="_blank" rel="noopener noreferrer" className="font-bold underline ml-2">
-                           Buy a Number <ExternalLink className="inline-block h-4 w-4" />
+                           Get a Free Trial Number <ExternalLink className="inline-block h-4 w-4" />
                         </a>
                       </AlertDescription>
                     </Alert>
