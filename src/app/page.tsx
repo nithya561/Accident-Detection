@@ -14,6 +14,7 @@ import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Vi
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -34,12 +35,14 @@ export default function SafeGuardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [showEmergencyDialog, setShowEmergencyDialog] = useState(false);
 
   const resetSystem = useCallback(() => {
     console.log("Resetting system...");
     setAccidentStatus(null);
     setIsEmergency(false);
     setIsAlerting(false);
+    setShowEmergencyDialog(false);
     toast({
         title: "System Reset",
         description: "Monitoring for new incidents.",
@@ -61,10 +64,7 @@ export default function SafeGuardPage() {
     if (isAlerting) return; // Prevent multiple alerts
 
     setIsAlerting(true);
-    toast({
-      title: "Emergency Triggered!",
-      description: `Contacting ${primaryContact}...`
-    });
+    setShowEmergencyDialog(true);
     
     const twilioPhoneNumber = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER;
 
@@ -75,6 +75,7 @@ export default function SafeGuardPage() {
             description: "The Twilio phone number is not set up in the environment.",
         });
         setIsAlerting(false);
+        setShowEmergencyDialog(false);
         return;
     }
 
@@ -98,7 +99,6 @@ export default function SafeGuardPage() {
         toast({ variant: "destructive", title: "Call Failed", description: "Could not initiate call alert." });
     }
     
-    // Do not auto-reset, wait for manual reset
   }, [primaryContact, toast, accidentStatus, isAlerting]);
 
 
@@ -156,9 +156,14 @@ export default function SafeGuardPage() {
   useEffect(() => {
     if (accidentStatus?.isAccident && !isEmergency) {
       setIsEmergency(true); 
-      triggerAlerts();
     }
   }, [accidentStatus, isEmergency, triggerAlerts]);
+
+  useEffect(() => {
+    if (isEmergency && !isAlerting) {
+        triggerAlerts();
+    }
+  }, [isEmergency, isAlerting, triggerAlerts]);
 
   const handleAnalyzeFootage = async () => {
     if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
@@ -212,7 +217,6 @@ export default function SafeGuardPage() {
     if (isAlerting) return;
     setAccidentStatus({isAccident: true, confidence: 1.0, reason: "Manual activation."});
     setIsEmergency(true);
-    triggerAlerts();
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,144 +248,167 @@ export default function SafeGuardPage() {
 
 
   return (
-    <div className="flex flex-col min-h-screen bg-background text-foreground">
-      <header className="p-4 border-b shadow-sm">
-        <div className="container mx-auto flex items-center gap-3">
-            <ShieldCheck className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold font-headline">SafeGuard</h1>
-        </div>
-      </header>
+    <>
+      <AlertDialog open={showEmergencyDialog} onOpenChange={setShowEmergencyDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="text-destructive" />
+              Emergency Alert Triggered!
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Sending SMS and initiating a call to {primaryContact}. Please wait for the system to reset.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-center gap-4 py-4">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <p>Contacting emergency services...</p>
+          </div>
+          <AlertDialogFooter>
+            <Button onClick={resetSystem}>Reset System Manually</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <main className="flex-grow container mx-auto p-4 md:p-8">
-        <div className="grid md:grid-cols-2 gap-8 items-start">
-          
-          <Card className="w-full shadow-md">
-            <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xl">
-                      <Video className="h-6 w-6" />
-                      Video Feed
-                    </div>
-                     <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Upload Video
-                    </Button>
-                    <input 
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                        accept="video/*"
-                    />
-                </CardTitle>
-                <CardDescription>{videoSrc ? "Analyzing uploaded video." : "Live feed for accident detection."}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center relative">
-                  <video 
-                    ref={videoRef} 
-                    className="w-full h-full object-cover" 
-                    autoPlay 
-                    muted={!videoSrc} 
-                    playsInline 
-                    loop={!!videoSrc}
-                  />
-                  {!videoSrc && hasCameraPermission === false && (
-                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white p-4">
-                            <AlertCircle className="h-8 w-8 mb-2" />
-                            <p className="text-center font-semibold">Camera permission denied.</p>
-                            <p className="text-center text-sm">Please enable camera access or upload a video.</p>
-                       </div>
-                  )}
-                   {!videoSrc && hasCameraPermission === null && (
-                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                            <p>Requesting camera...</p>
-                       </div>
-                  )}
-              </div>
-            </CardContent>
-             <CardFooter className="flex flex-col sm:flex-row gap-2 pt-2">
-                <Button onClick={handleAnalyzeFootage} disabled={!canAnalyze}>
-                  {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Analyze Footage
-                </Button>
-                {isAlertActive && (
-                    <Button onClick={resetSystem} variant="outline">Reset System</Button>
-                )}
-              </CardFooter>
-          </Card>
-          
-          <div className="space-y-8">
+      <div className="flex flex-col min-h-screen bg-background text-foreground">
+        <header className="p-4 border-b shadow-sm">
+          <div className="container mx-auto flex items-center gap-3">
+              <ShieldCheck className="h-8 w-8 text-primary" />
+              <h1 className="text-3xl font-bold font-headline">SafeGuard</h1>
+          </div>
+        </header>
+
+        <main className="flex-grow container mx-auto p-4 md:p-8">
+          <div className="grid md:grid-cols-2 gap-8 items-start">
+            
             <Card className="w-full shadow-md">
-                <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                    <Settings className="h-6 w-6" />
-                    Emergency Setup
-                </CardTitle>
-                <CardDescription>Set the primary phone number for emergency alerts.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                <div className="space-y-2">
-                    <Label htmlFor="contact-number">Primary Contact Number</Label>
-                    <div className="flex gap-2">
-                    <Input 
-                        id="contact-number" 
-                        type="tel" 
-                        placeholder="+15551234567"
-                        value={inputContact}
-                        onChange={(e) => setInputContact(e.target.value)}
+              <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xl">
+                        <Video className="h-6 w-6" />
+                        Video Feed
+                      </div>
+                       <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                          <Upload className="mr-2 h-4 w-4" />
+                          Upload Video
+                      </Button>
+                      <input 
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileChange}
+                          className="hidden"
+                          accept="video/*"
+                      />
+                  </CardTitle>
+                  <CardDescription>{videoSrc ? "Analyzing uploaded video." : "Live feed for accident detection."}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center relative">
+                    <video 
+                      ref={videoRef} 
+                      className="w-full h-full object-cover" 
+                      autoPlay 
+                      muted={!videoSrc} 
+                      playsInline 
+                      loop={!!videoSrc}
                     />
-                    <Button onClick={handleSetContact}>Save</Button>
-                    </div>
-                </div>
-                </CardContent>
-                <CardFooter>
-                    {primaryContact ? (
-                        <p className="text-sm text-muted-foreground">Current contact: <span className="font-semibold text-foreground">{primaryContact}</span></p>
-                    ) : (
-                        <p className="text-sm text-muted-foreground">No primary contact set.</p>
+                    {!videoSrc && hasCameraPermission === false && (
+                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white p-4">
+                              <AlertCircle className="h-8 w-8 mb-2" />
+                              <p className="text-center font-semibold">Camera permission denied.</p>
+                              <p className="text-center text-sm">Please enable camera access or upload a video.</p>
+                         </div>
                     )}
+                     {!videoSrc && hasCameraPermission === null && (
+                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white">
+                              <Loader2 className="h-8 w-8 animate-spin" />
+                              <p>Requesting camera...</p>
+                         </div>
+                    )}
+                </div>
+              </CardContent>
+               <CardFooter className="flex flex-col sm:flex-row gap-2 pt-2">
+                  <Button onClick={handleAnalyzeFootage} disabled={!canAnalyze}>
+                    {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Analyze Footage
+                  </Button>
+                  {isAlertActive && (
+                      <Button onClick={resetSystem} variant="outline">Reset System</Button>
+                  )}
                 </CardFooter>
             </Card>
+            
+            <div className="space-y-8">
+              <Card className="w-full shadow-md">
+                  <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                      <Settings className="h-6 w-6" />
+                      Emergency Setup
+                  </CardTitle>
+                  <CardDescription>Set the primary phone number for emergency alerts.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                  <div className="space-y-2">
+                      <Label htmlFor="contact-number">Primary Contact Number</Label>
+                      <div className="flex gap-2">
+                      <Input 
+                          id="contact-number" 
+                          type="tel" 
+                          placeholder="+15551234567"
+                          value={inputContact}
+                          onChange={(e) => setInputContact(e.target.value)}
+                      />
+                      <Button onClick={handleSetContact}>Save</Button>
+                      </div>
+                  </div>
+                  </CardContent>
+                  <CardFooter>
+                      {primaryContact ? (
+                          <p className="text-sm text-muted-foreground">Current contact: <span className="font-semibold text-foreground">{primaryContact}</span></p>
+                      ) : (
+                          <p className="text-sm text-muted-foreground">No primary contact set.</p>
+                      )}
+                  </CardFooter>
+              </Card>
 
-            <Card className="w-full shadow-md">
-                <CardHeader>
-                <CardTitle className="text-xl">System Status</CardTitle>
-                <CardDescription>Real-time status of the accident detection system.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                <div className={`flex items-center text-lg font-semibold ${status.color}`}>
-                    {status.icon}
-                    {status.text}
-                </div>
-                {accidentStatus?.reason && (
-                    <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border">
-                        <strong>AI Analysis:</strong> {accidentStatus.reason}
-                    </p>
-                )}
-                </CardContent>
-            </Card>
+              <Card className="w-full shadow-md">
+                  <CardHeader>
+                  <CardTitle className="text-xl">System Status</CardTitle>
+                  <CardDescription>Real-time status of the accident detection system.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                  <div className={`flex items-center text-lg font-semibold ${status.color}`}>
+                      {status.icon}
+                      {status.text}
+                  </div>
+                  {accidentStatus?.reason && (
+                      <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border">
+                          <strong>AI Analysis:</strong> {accidentStatus.reason}
+                      </p>
+                  )}
+                  </CardContent>
+              </Card>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-12 text-center">
-            <Button 
-                onClick={handleManualEmergency} 
-                className="bg-accent hover:bg-accent/90 text-accent-foreground h-20 w-full max-w-sm text-xl rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-200"
-                disabled={isAnalyzing || isAlertActive}
-                aria-label="Activate manual emergency"
-            >
-                <AlertTriangle className="mr-4 h-8 w-8" />
-                MANUAL EMERGENCY
-            </Button>
-            <p className="mt-4 text-muted-foreground">Press in case of an emergency not detected automatically.</p>
-        </div>
-      </main>
+          <div className="mt-12 text-center">
+              <Button 
+                  onClick={handleManualEmergency} 
+                  className="bg-accent hover:bg-accent/90 text-accent-foreground h-20 w-full max-w-sm text-xl rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-200"
+                  disabled={isAnalyzing || isAlertActive}
+                  aria-label="Activate manual emergency"
+              >
+                  <AlertTriangle className="mr-4 h-8 w-8" />
+                  MANUAL EMERGENCY
+              </Button>
+              <p className="mt-4 text-muted-foreground">Press in case of an emergency not detected automatically.</p>
+          </div>
+        </main>
 
-      <footer className="p-4 text-center text-sm text-muted-foreground border-t mt-8">
-        <p>&copy; {new Date().getFullYear()} SafeGuard. All Rights Reserved.</p>
-      </footer>
-    </div>
+        <footer className="p-4 text-center text-sm text-muted-foreground border-t mt-8">
+          <p>&copy; {new Date().getFullYear()} SafeGuard. All Rights Reserved.</p>
+        </footer>
+      </div>
+    </>
   );
 }
