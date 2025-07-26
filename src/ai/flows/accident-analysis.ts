@@ -46,12 +46,8 @@ const prompt = ai.definePrompt({
   Accelerometer Data: {{{accelerometerData}}}
   Gyroscope Data: {{{gyroscopeData}}}
   Location Data (optional): {{{locationData}}}
-  \nOutput in JSON format:
-  { 
-    "isAccident": true|false,
-    "confidence": number (0-1),
-    "reason": string
-  }
+
+  You MUST output a valid JSON object that conforms to the output schema. Do not include any text outside of the JSON object.
   `,
 });
 
