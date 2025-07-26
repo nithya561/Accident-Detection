@@ -26,6 +26,8 @@ import {
 export default function SafeGuardPage() {
   const [primaryContact, setPrimaryContact] = useState("+919380731506");
   const [inputContact, setInputContact] = useState("+919380731506");
+  const [twilioFromNumber, setTwilioFromNumber] = useState("");
+  const [inputFromNumber, setInputFromNumber] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
@@ -56,8 +58,15 @@ export default function SafeGuardPage() {
         title: "No Contact Set",
         description: "Please set a primary contact number before triggering an alert.",
       });
-      setIsEmergency(false);
-      setAccidentStatus(null);
+      return;
+    }
+
+    if (!twilioFromNumber) {
+      toast({
+          variant: "destructive",
+          title: "Twilio Number Not Set",
+          description: "Please set your Twilio phone number in the Emergency Setup section.",
+      });
       return;
     }
 
@@ -65,26 +74,13 @@ export default function SafeGuardPage() {
 
     setIsAlerting(true);
     setShowEmergencyDialog(true);
-    
-    const twilioPhoneNumber = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER;
-
-    if (!twilioPhoneNumber) {
-        toast({
-            variant: "destructive",
-            title: "Twilio Not Configured",
-            description: "The Twilio phone number is not set up in the environment.",
-        });
-        setIsAlerting(false);
-        setShowEmergencyDialog(false);
-        return;
-    }
 
     const alertReason = accidentStatus?.reason || "Manual emergency activation.";
     const messageBody = `URGENT: An accident may have been detected involving your contact. Reason: ${alertReason}. Please check on them immediately.`;
     const callMessage = `Hello. This is an automated alert from SafeGuard. An accident may have been detected. Reason: ${alertReason}. Please check on your contact immediately.`;
 
     try {
-        await sendSms({ to: primaryContact, from: twilioPhoneNumber, body: messageBody });
+        await sendSms({ to: primaryContact, from: twilioFromNumber, body: messageBody });
         toast({ title: "SMS Sent Successfully", description: `Message sent to ${primaryContact}` });
     } catch (error: any) {
         console.error("SMS sending failed:", error);
@@ -92,14 +88,14 @@ export default function SafeGuardPage() {
     }
     
     try {
-        await makeCall({ to: primaryContact, from: twilioPhoneNumber, message: callMessage });
+        await makeCall({ to: primaryContact, from: twilioFromNumber, message: callMessage });
         toast({ title: "Call Initiated Successfully", description: `Calling ${primaryContact}` });
     } catch (error: any) {
         console.error("Call initiation failed:", error);
         toast({ variant: "destructive", title: "Call Failed", description: `Could not initiate call alert: ${error.message}` });
     }
     
-  }, [primaryContact, toast, accidentStatus, isAlerting]);
+  }, [primaryContact, twilioFromNumber, toast, accidentStatus, isAlerting]);
 
 
   const setupCameraStream = useCallback(async () => {
@@ -153,11 +149,27 @@ export default function SafeGuardPage() {
     }
   };
   
+  const handleSetFromNumber = () => {
+    if (inputFromNumber && /^\+?[1-9]\d{1,14}$/.test(inputFromNumber)) {
+        setTwilioFromNumber(inputFromNumber);
+        toast({
+            title: "Twilio Number Updated",
+            description: `Twilio 'From' number set to ${inputFromNumber}.`,
+        });
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Invalid Phone Number",
+            description: "Please enter a valid Twilio phone number in E.164 format.",
+        });
+    }
+  };
+
   useEffect(() => {
     if (accidentStatus?.isAccident && !isEmergency) {
       setIsEmergency(true); 
     }
-  }, [accidentStatus, isEmergency, triggerAlerts]);
+  }, [accidentStatus, isEmergency]);
 
   useEffect(() => {
     if (isEmergency && !isAlerting) {
@@ -345,11 +357,24 @@ export default function SafeGuardPage() {
                       <Settings className="h-6 w-6" />
                       Emergency Setup
                   </CardTitle>
-                  <CardDescription>Set the primary phone number for emergency alerts.</CardDescription>
+                  <CardDescription>Set your Twilio and emergency contact phone numbers.</CardDescription>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-4">
                   <div className="space-y-2">
-                      <Label htmlFor="contact-number">Primary Contact Number</Label>
+                      <Label htmlFor="from-number">Your Twilio Phone Number (From)</Label>
+                      <div className="flex gap-2">
+                      <Input 
+                          id="from-number" 
+                          type="tel" 
+                          placeholder="+15005550006"
+                          value={inputFromNumber}
+                          onChange={(e) => setInputFromNumber(e.target.value)}
+                      />
+                      <Button onClick={handleSetFromNumber}>Save</Button>
+                      </div>
+                  </div>
+                  <div className="space-y-2">
+                      <Label htmlFor="contact-number">Primary Contact Number (To)</Label>
                       <div className="flex gap-2">
                       <Input 
                           id="contact-number" 
@@ -362,11 +387,16 @@ export default function SafeGuardPage() {
                       </div>
                   </div>
                   </CardContent>
-                  <CardFooter>
+                  <CardFooter className="flex-col items-start gap-2">
+                      {twilioFromNumber ? (
+                          <p className="text-sm text-muted-foreground">Current Twilio number: <span className="font-semibold text-foreground">{twilioFromNumber}</span></p>
+                      ) : (
+                          <p className="text-sm text-destructive">Twilio 'From' number not set.</p>
+                      )}
                       {primaryContact ? (
                           <p className="text-sm text-muted-foreground">Current contact: <span className="font-semibold text-foreground">{primaryContact}</span></p>
                       ) : (
-                          <p className="text-sm text-muted-foreground">No primary contact set.</p>
+                          <p className="text-sm text-destructive">No primary contact set.</p>
                       )}
                   </CardFooter>
               </Card>
