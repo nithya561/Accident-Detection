@@ -66,7 +66,7 @@ export default function SafeGuardPage() {
     setIsAlerting(true);
     setShowEmergencyDialog(true);
     
-    const twilioPhoneNumber = "+15005550006"; // Using Twilio's Magic Number for testing to fix the error.
+    const twilioPhoneNumber = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER;
 
     if (!twilioPhoneNumber) {
         toast({
