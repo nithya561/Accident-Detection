@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload, CircleCheck } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Video, AlertCircle, Upload, CircleCheck, ExternalLink } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -26,8 +26,8 @@ import {
 export default function SafeGuardPage() {
   const [primaryContact, setPrimaryContact] = useState("+919380731506");
   const [inputContact, setInputContact] = useState("+919380731506");
-  const [twilioFromNumber, setTwilioFromNumber] = useState(process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || "");
-  const [inputFromNumber, setInputFromNumber] = useState(process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || "");
+  const [twilioFromNumber, setTwilioFromNumber] = useState("");
+  const [inputFromNumber, setInputFromNumber] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [accidentStatus, setAccidentStatus] = useState<AccidentAnalysisOutput | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
@@ -360,13 +360,25 @@ export default function SafeGuardPage() {
                   <CardDescription>Set your Twilio and emergency contact phone numbers.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                  {!twilioFromNumber && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Action Required: Get a Twilio Phone Number</AlertTitle>
+                      <AlertDescription>
+                        You don't have a Twilio phone number. You must buy one from your Twilio console to send alerts.
+                        <a href="https://www.twilio.com/console/phone-numbers/search" target="_blank" rel="noopener noreferrer" className="font-bold underline ml-2">
+                           Buy a Number <ExternalLink className="inline-block h-4 w-4" />
+                        </a>
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   <div className="space-y-2">
                       <Label htmlFor="from-number">Your Twilio Phone Number (From)</Label>
                       <div className="flex gap-2">
                       <Input 
                           id="from-number" 
                           type="tel" 
-                          placeholder="+15005550006"
+                          placeholder="Your Twilio Number"
                           value={inputFromNumber}
                           onChange={(e) => setInputFromNumber(e.target.value)}
                       />
