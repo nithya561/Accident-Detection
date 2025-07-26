@@ -100,10 +100,10 @@ export default function SafeGuardPage() {
   }, [primaryContact, toast]);
 
   useEffect(() => {
-    if (accidentStatus?.isAccident || isEmergency) {
+    if (accidentStatus?.isAccident && !showAlertDialog) {
         triggerAlerts();
     }
-  }, [accidentStatus, isEmergency, triggerAlerts]);
+  }, [accidentStatus, showAlertDialog, triggerAlerts]);
 
   const handleAnalyzeFootage = async () => {
     if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
@@ -156,6 +156,7 @@ export default function SafeGuardPage() {
   const handleManualEmergency = () => {
     setAccidentStatus(null);
     setIsEmergency(true);
+    triggerAlerts();
   };
   
   const resetSystem = () => {
