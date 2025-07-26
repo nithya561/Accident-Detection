@@ -12,7 +12,6 @@ import { AlertTriangle, ShieldCheck, Phone, MessageSquare, Loader2, Settings, Vi
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -33,6 +32,43 @@ export default function SafeGuardPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [showAlertDialog, setShowAlertDialog] = useState(false);
+  const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetSystem = useCallback(() => {
+    setAccidentStatus(null);
+    setIsEmergency(false);
+    setShowAlertDialog(false);
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+      alertTimeoutRef.current = null;
+    }
+    toast({
+        title: "System Reset",
+        description: "Monitoring for new incidents.",
+    });
+  }, [toast]);
+
+  const triggerAlerts = useCallback(() => {
+    if (!primaryContact) {
+      toast({
+        variant: "destructive",
+        title: "No Contact Set",
+        description: "Please set a primary contact number before triggering an alert.",
+      });
+      setIsEmergency(false);
+      setAccidentStatus(null);
+      return;
+    }
+    setShowAlertDialog(true);
+
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    alertTimeoutRef.current = setTimeout(() => {
+        resetSystem();
+    }, 5000); // Auto-reset after 5 seconds
+  }, [primaryContact, toast, resetSystem]);
+
 
   const setupCameraStream = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -84,26 +120,13 @@ export default function SafeGuardPage() {
         });
     }
   };
-
-  const triggerAlerts = useCallback(() => {
-    if (!primaryContact) {
-      toast({
-        variant: "destructive",
-        title: "No Contact Set",
-        description: "Please set a primary contact number before triggering an alert.",
-      });
-      setIsEmergency(false);
-      setAccidentStatus(null);
-      return;
-    }
-    setShowAlertDialog(true);
-  }, [primaryContact, toast]);
-
+  
   useEffect(() => {
-    if (accidentStatus?.isAccident && !showAlertDialog) {
-        triggerAlerts();
+    if (accidentStatus?.isAccident && !isEmergency && !showAlertDialog) {
+      setIsEmergency(true); 
+      triggerAlerts();
     }
-  }, [accidentStatus, showAlertDialog, triggerAlerts]);
+  }, [accidentStatus, isEmergency, showAlertDialog, triggerAlerts]);
 
   const handleAnalyzeFootage = async () => {
     if (!videoRef.current || (!hasCameraPermission && !videoSrc)) {
@@ -158,19 +181,6 @@ export default function SafeGuardPage() {
     setIsEmergency(true);
     triggerAlerts();
   };
-  
-  const resetSystem = () => {
-    setAccidentStatus(null);
-    setIsEmergency(false);
-    setShowAlertDialog(false);
-    if (!hasCameraPermission && !videoSrc) {
-      setupCameraStream();
-    }
-    toast({
-        title: "System Reset",
-        description: "Monitoring for new incidents.",
-    });
-  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -187,8 +197,7 @@ export default function SafeGuardPage() {
 
   const getStatus = () => {
     if (isAnalyzing) return { text: "Analyzing video feed...", color: "text-amber-500" };
-    if (accidentStatus?.isAccident) return { text: `Accident Detected! Confidence: ${(accidentStatus.confidence * 100).toFixed(0)}%`, color: "text-destructive" };
-    if (isEmergency) return { text: "Manual Emergency Activated!", color: "text-destructive" };
+    if (accidentStatus?.isAccident || isEmergency) return { text: `Accident Detected! Confidence: ${(accidentStatus?.confidence ?? 1 * 100).toFixed(0)}%`, color: "text-destructive" };
     if (videoSrc) return { text: "Video loaded. Ready to analyze.", color: "text-blue-600" };
     if(hasCameraPermission === false && !videoSrc) return { text: "Camera not available. Upload a video.", color: "text-amber-500" };
     if(hasCameraPermission === true && !videoSrc) return { text: "Live feed active. Ready to analyze.", color: "text-green-600" };
@@ -344,7 +353,7 @@ export default function SafeGuardPage() {
             <AlertDialogHeader>
             <AlertDialogTitle>Emergency Alert Triggered!</AlertDialogTitle>
             <AlertDialogDescription>
-                The system is now alerting your primary contact. This is a simulation. In a real application, an SMS and a phone call would be initiated.
+                The system is now alerting your primary contact. This is a simulation. In a real application, an SMS and a phone call would be initiated. This dialog will close automatically.
             </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-4 my-4">
@@ -364,12 +373,11 @@ export default function SafeGuardPage() {
                 </div>
             </div>
             <AlertDialogFooter>
-                <AlertDialogAction onClick={resetSystem}>Acknowledge & Reset</AlertDialogAction>
+                <Button onClick={resetSystem}>Acknowledge & Reset</Button>
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   );
-}
 
     
